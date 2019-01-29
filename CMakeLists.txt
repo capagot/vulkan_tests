@@ -7,9 +7,9 @@ project(VULKAN_TEST LANGUAGES CXX)
 ###############################################################################
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
-set(CMAKE_CXX_STANDARD 11)          # enforces c++11
-set(CMAKE_CXX_STANDARD_REQUIRED ON) # does not fallback if the compiler does not cupport c++11
-set(CMAKE_CXX_EXTENSIONS OFF)       # sets -std=c++11 instead of -std=g++11
+set(CMAKE_CXX_STANDARD 17)          # enforces c++17
+set(CMAKE_CXX_STANDARD_REQUIRED ON) # does not fallback if the compiler does not cupport c++17
+set(CMAKE_CXX_EXTENSIONS OFF)       # sets -std=c++17 instead of -std=g++17
 
 ###############################################################################
 # Set output directories

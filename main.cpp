@@ -5,12 +5,21 @@
 #include <glm/vec4.hpp>
 #include <iostream>
 #include <vector>
+#include <optional>
 
 const int kWindowWidth = 800;
 const int kWindowHeight = 600;
 
 class Application {
    public:
+    struct QueueFamilyIndices {
+        std::optional<uint32_t> graphics_family;
+
+        bool isComplete() {
+            return graphics_family.has_value();
+        }
+    };
+
     void run() {
         initWindow();
         initVulkan();
@@ -21,9 +30,9 @@ class Application {
    private:
     void initWindow() {
 #ifdef NDEBUG
-    std::cout << "Runing in RELEASE mode.\n";
+        std::cout << "Runing in RELEASE mode.\n";
 #else
-    std::cout << "Runing in DEBUG mode.\n";
+        std::cout << "Runing in DEBUG mode.\n";
 #endif
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);  // tells GLFW to not create an OpenGL context
@@ -34,12 +43,15 @@ class Application {
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
+        pickPhysicalDevice();
+        createLogicalDevice();
     }
 
     void createInstance() {
-        if (kEnableValidationLayers_ && !checkValidationLayerSupport()) {
+        if (kEnableValidationLayers_ && !checkValidationLayerSupport())
             throw std::runtime_error("Validation layers requested, but not available!");
-        }
+
+        std::cout << "Validation layers available." << std::endl;
 
         VkApplicationInfo app_info = {};  // optional struct (may help the driver optimize it)
         app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -65,9 +77,10 @@ class Application {
         } else
             create_info.enabledLayerCount = 0;
 
-        if (vkCreateInstance(&create_info, nullptr, &vk_instance_) != VK_SUCCESS) {
+        if (vkCreateInstance(&create_info, nullptr, &vk_instance_) != VK_SUCCESS)
             throw std::runtime_error("failed to create instance!");
-        }
+
+        std::cout << "Vulkan instance successfully created." << std::endl;
     }
 
     bool checkValidationLayerSupport() {
@@ -77,7 +90,7 @@ class Application {
         std::vector<VkLayerProperties> available_layers(layer_count);
         vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data());
 
-        std::cout << "Vulkan supported layers (" << layer_count << "):\n";
+        std::cout << "Vulkan supported layers (" << layer_count << "):" << std::endl;
         for (const auto& available_layers : available_layers)
             std::cout << "\t" << available_layers.layerName << std::endl;
 
@@ -116,13 +129,13 @@ class Application {
         vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
         std::vector<VkExtensionProperties> supported_extensions(extension_count);
         vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, supported_extensions.data());
-        std::cout << "Vulkan supported instance extentensions (" << extension_count << "):\n";
+        std::cout << "Vulkan supported instance extentensions (" << extension_count << "):" << std::endl;
 
         for (const auto& supported_extension : supported_extensions) {
            std::cout << "\t" << supported_extension.extensionName << std::endl;
         }
 
-        std::cout << "Required instance extentensions (" << extensions.size() << "):\n";
+        std::cout << "Required instance extentensions (" << extensions.size() << "):" << std::endl;
         for (const auto& extension : extensions) {
            std::cout << "\t" << extension << std::endl;
         }
@@ -153,7 +166,7 @@ class Application {
             return VK_ERROR_EXTENSION_NOT_PRESENT;
     }
 
-    // Releases the resources associated to the VkDebugUtilsMessengerEXT object.
+    // Cleans up the resources associated to the VkDebugUtilsMessengerEXT object.
     void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger, const VkAllocationCallbacks* pAllocator) {
         auto func = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
         if (func != nullptr)
@@ -177,6 +190,102 @@ class Application {
 
         if (CreateDebugUtilsMessengerEXT(vk_instance_, &create_info, nullptr, &debug_messenger_func_) != VK_SUCCESS)
             throw std::runtime_error("failed to set up debug messenger!");
+
+        std::cout << "Debug messenger successfully set up." << std::endl;
+    }
+
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+        QueueFamilyIndices indices;
+
+        uint32_t queue_family_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
+        std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
+
+        int i = 0;
+        for (const auto& queue_family : queue_families) {
+            if (queue_family.queueCount > 0 && queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT)
+                indices.graphics_family = i;
+
+            if (indices.isComplete()) break;
+
+            ++i;
+        }
+
+        return indices;
+    }
+
+    bool isDeviceSuitable(VkPhysicalDevice device) {
+        VkPhysicalDeviceProperties device_properties;
+        //VkPhysicalDeviceFeatures device_features;
+        vkGetPhysicalDeviceProperties(device, &device_properties);
+        //vkGetPhysicalDeviceFeatures(device, &device_features);
+
+        QueueFamilyIndices indices = findQueueFamilies(device);
+
+        return indices.isComplete() && (device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU);
+    }
+
+    void pickPhysicalDevice() {
+        uint32_t device_count = 0;
+        vkEnumeratePhysicalDevices(vk_instance_, &device_count, nullptr);
+
+        if (device_count == 0)
+            throw std::runtime_error("failed to find GPUs with Vulkan support!");
+
+        std::cout << "Vulkan-enabled GPU successfully found." << std::endl;
+
+        std::vector<VkPhysicalDevice> devices(device_count);
+        vkEnumeratePhysicalDevices(vk_instance_, &device_count, devices.data());
+        std::cout << "Number of Vulkan capable devices: " << devices.size() << std::endl;
+
+        // picks the last suitable device (not necessarily the best one)
+        for (const auto& device : devices)
+            if (isDeviceSuitable(device)) {
+                physical_device_ = device;
+                break;
+            }
+
+        if (physical_device_ == VK_NULL_HANDLE)
+            throw std::runtime_error("failed to find a suitable GPU!");
+
+        std::cout << "GPU is suitable for graphics." << std::endl;
+    }
+
+    void createLogicalDevice() {
+        QueueFamilyIndices indices = findQueueFamilies(physical_device_);
+
+        VkDeviceQueueCreateInfo queue_create_info = {};
+        queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_create_info.queueFamilyIndex = indices.graphics_family.value();
+        queue_create_info.queueCount = 1;
+
+        float queue_priority = 1.0f;
+        queue_create_info.pQueuePriorities = &queue_priority; // must be set even for a unique queue
+
+        VkPhysicalDeviceFeatures device_features = {};
+
+        VkDeviceCreateInfo create_info = {};
+        create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        create_info.pQueueCreateInfos = &queue_create_info;
+        create_info.queueCreateInfoCount = 1;
+        create_info.pEnabledFeatures = &device_features;
+
+        create_info.enabledExtensionCount = 0;
+
+        if (kEnableValidationLayers_) {
+            create_info.enabledLayerCount = static_cast<uint32_t>(kValidationLayers_.size());
+            create_info.ppEnabledLayerNames = kValidationLayers_.data();
+        } else
+            create_info.enabledLayerCount = 0;
+
+        if (vkCreateDevice(physical_device_, &create_info, nullptr, &device_) != VK_SUCCESS)
+            throw std::runtime_error("failed to create logical device!");
+
+        std::cout << "Logical device successfully created." << std::endl;
+
+        // creates only one queue (index 0) for the informed queue family.
+        vkGetDeviceQueue(device_, indices.graphics_family.value(), 0, &graphics_queue_);
     }
 
     void mainLoop() {
@@ -184,6 +293,8 @@ class Application {
     }
 
     void cleanup() {
+        vkDestroyDevice(device_, nullptr); // associated queues are implicitly cleaned up.
+
         if (kEnableValidationLayers_)
             DestroyDebugUtilsMessengerEXT(vk_instance_, debug_messenger_func_, nullptr);
 
@@ -198,6 +309,10 @@ class Application {
 
     // Standard validation layer that comes with LunarG Vulkan SDK
     const std::vector<const char*> kValidationLayers_ = {"VK_LAYER_LUNARG_standard_validation"};
+
+    VkPhysicalDevice physical_device_ = VK_NULL_HANDLE;
+    VkDevice device_;
+    VkQueue graphics_queue_;
 
 #ifdef NDEBUG
     const bool kEnableValidationLayers_ = false;
